@@ -1,0 +1,5 @@
+10.0.2.5  haproxy-lb
+10.0.2.7  kubernetes-master1
+10.0.2.4  kubernetes-master2
+10.0.2.6  kubernetes-worker1
+10.0.2.8  kubernetes-worker2
