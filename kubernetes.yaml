@@ -1,0 +1,248 @@
+---
+#1. Ensure that each host's name and corresponding IP address are added to the /etc/hosts file on all nodes. The hostname and respective IPs are listed in a file named hostfile. Therefore, copy the hostname resolutions from the hostfile to the /etc/hosts file on all nodes.
+- name: Copy content of the hostfile file and append it to another file
+  hosts: AllNode
+  become: yes
+  tasks:
+    - name: Unconditionnaly append content of hostfile to /etc/hosts
+      blockinfile:
+        path: /etc/hosts
+        block: |
+          {{ lookup('file', 'hostfile') }} #The blockinfile module is specifically designed for managing blocks of content in files. It ensures that the 
+specified block of content is only inserted into the target file if it doesn't already exist.
+
+#2. On the Loadbalancer install HA proxy, configure HAProxy, start and enable HAProxy. Take Note of this file - haproxy_add_config
+- name: Install HA proxy on the Kubernetes Loadbalancer Node
+  hosts: LoadBalancerNode
+  become: yes
+  tasks:
+    - name: Install HAProxy package
+      apt:
+        name: haproxy
+        state: present
+
+    - name: Restart HAProxy
+      service:
+        name: haproxy
+        state: restarted
+      when: ansible_os_family == 'Debian'  # Restart HAProxy on Debian-based systems
+
+    - name: Enable HAProxy on system boot
+      service:
+        name: haproxy
+        enabled: yes
+      when: ansible_os_family == 'Debian'  # Enable HAProxy on Debian-based systems
+
+    - name: Unconditionnaly append content of haproxy_add_config to haproxy_add_config
+      blockinfile:
+        path: /etc/haproxy/haproxy.cfg
+        block: |
+          {{ lookup('file', 'haproxy_add_config') }} #The blockinfile module is specifically designed for managing blocks of content in files. It ensures that the specified block of content is only inserted into the target file if it doesn't already exist.
+
+
+#3. Kubernetes doesnt support "Swap". Disable swap, Firewall on all kubernetes nodes and also to make it permanent, comment out the swap entry in /etc/fstab file as below.
+- name: Kubernetes doesnt support Swap. Disable swap and Firewall on all kubernetes nodes and also to make it permanent
+  hosts: AllNode
+  become: yes
+  tasks:
+    - name: turn off swap
+      shell: swapoff -a
+
+    - name: make the swap off permanent
+      shell: "sed -i '/swap/d' /etc/fstab"
+
+    - name: disable firewall service
+      service:
+        name: ufw
+        state: stopped
+
+
+
+# 4. Network Configuration
+- name: Add Network configuration to /etc/sysctl.d/kubernetes.conf
+  hosts: AllNode
+  become: yes
+  tasks:
+    - name: Ensure net.bridge settings are in /etc/sysctl.d/kubernetes.conf
+      lineinfile:
+        path: /etc/sysctl.d/kubernetes.conf
+        line: "{{ item }}"
+        create: yes
+      loop:
+        - "net.bridge.bridge-nf-call-ip6tables = 1"
+        - "net.bridge.bridge-nf-call-iptables = 1"
+
+
+# 5. Install Docker in all the Nodes
+- name: Install Docker on Ubuntu VM
+  hosts: AllNode
+  become: yes
+  tasks:
+    - name: Install prerequisite packages
+      apt:
+        name: "{{ item }}"
+        state: present
+      loop:
+        - apt-transport-https
+        - ca-certificates
+        - curl
+        - software-properties-common
+
+    - name: Add Docker's official GPG key
+      apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+
+    - name: Add Docker APT repository
+      apt_repository:
+        repo: deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable
+        state: present
+
+    - name: Install Docker
+      apt:
+        name:
+          - docker-ce
+        state: present
+
+    - name: removed containerd.io
+      apt:
+        name:
+          - containerd.io
+        state: absent
+
+    - name: Start Docker service
+      service:
+        name: docker
+        state: started
+        enabled: yes
+
+
+# 6. After docker installation, add kubernetes signing key and add kubernetes repository on all nodes.
+
+- name: Add Kubernetes apt repository
+  hosts: AllNode
+  become: yes
+  tasks:
+    - name: Create directory for Kubernetes apt keyring
+      file:
+        path: /etc/apt/keyrings
+        state: directory
+        mode: 0755
+
+    - name: Add Google Cloud apt key
+      shell: curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.28/deb/Release.key | sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg     
+      args:
+        creates: /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+
+    - name: Add Kubernetes apt repository to sources list
+      shell: echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.28/deb/ /' | sudo tee /etc/apt/sources.list.d/kubernetes.list
+      args:
+        creates: /etc/apt/sources.list.d/kubernetes.list
+# 7. Install kubernetes packages.
+
+- name: Uninstall Kubernetes components and dependencies
+  hosts: AllNode
+  become: yes
+  tasks:
+    - name: Uninstall Kubernetes components and dependencies
+      apt:
+        name: "{{ item }}"
+        state: absent
+      loop:
+        - kubeadm
+        - kubelet
+        - kubectl
+
+- name: Install Kubernetes components
+  hosts: AllNode
+  become: yes  # This allows Ansible to run tasks with root privileges (sudo)
+  tasks:
+    - name: Update apt package cache
+      apt:
+        update_cache: yes
+
+    - name: Install Kubernetes components
+      shell: apt install -y kubeadm=1.28.1-1.1 kubelet=1.28.1-1.1 kubectl=1.28.1-1.1 --allow-downgrades
+
+
+# 8. Initializing and Setting up kubernetes master node.
+
+- name: Initialize Kubernetes cluster
+  hosts: MasterNode-02  # Assuming you're running Ansible locally
+  gather_facts: yes  # gathering facts about the target host
+  become: yes
+  vars_prompt:
+    - name: load_balancer_ip
+      prompt: "Enter the Kubernetes LoadBalancer private IP address"
+      private: no  # Set to yes if you want to hide the input (e.g., for sensitive data)
+    - name: load_balancer_port
+      prompt: "Enter the Kubernetes LoadBalancer port ie 6443"
+      private: no
+    - name: master_node_ip
+      prompt: "Enter the Kubernetes MasterNode private IP address"
+      private: no
+    - name: pod_network_cidr
+      prompt: "Enter the Cluster Pod IP CIDR ie 192.168.0.0/16"
+      private: no
+
+  tasks:
+    - name: Run kubeadm init command
+      command: kubeadm init --control-plane-endpoint={{ load_balancer_ip }}:{{ load_balancer_port }} --upload-certs --apiserver-advertise-address={{ master_node_ip }} --pod-network-cidr={{ pod_network_cidr }}
+      register: kubeadm_init_output
+
+    - name: Display kubeadm init output
+      debug:
+        msg: "{{ kubeadm_init_output.stdout_lines }}" #The output of the kubeadm init command is stored in the kubeadm_init_output variable.The "debug" module is used to display the output of the kubeadm init command as stdout on the Ansible control node.
+
+
+# 9. Install Network add-on to enable the communication between the pods.
+
+- name: Create Calico network policy
+  hosts: MasterNode-01
+  tasks:
+    - name: Download Calico YAML file
+      uri:
+        url: "https://docs.projectcalico.org/v3.15/manifests/calico.yaml"
+        dest: "/tmp/calico.yaml"
+        validate_certs: no
+
+    - name: Apply Calico YAML file
+      shell: "kubectl create -f /tmp/calico.yaml"
+      args:
+        executable: /bin/bash
+
+# 10. Join all Other Kubernetes Master nodes
+
+- name: Join Kubernetes master nodes
+  hosts: MasterNode-02  # Assuming you're running Ansible locally
+  gather_facts: yes  # Gathering facts about the target host
+  vars_prompt:
+    - name: kubernetes_master_ip
+      prompt: "Enter the Kubernetes master IP address"
+      private: no  # Set to yes if you want to hide the input (e.g., for sensitive data)
+    - name: kubernetes_master_port
+      prompt: "Enter the Kubernetes master port"
+      private: no
+    - name: token
+      prompt: "Enter the token"
+      private: yes  # Set to yes to hide the input
+    - name: ca_cert_hash
+      prompt: "Enter the CA certificate hash"
+      private: yes
+
+  tasks:
+    - name: Run kubeadm join command
+      shell: kubeadm join {{ kubernetes_master_ip }}:{{ kubernetes_master_port }} --token {{ token }} --discovery-token-ca-cert-hash {{ ca_cert_hash }}  
+
+
+# 11.  Join all Kubernetes Worker Nodes. Copy the other join command highlighted in red color to any number of worker nodes
+
+- name: Join workerNode
+  hosts: WorkerNode
+  vars_prompt:
+    - name: command_to_run
+      prompt: "Copy the other join command highlighted in red color and paste it here."
+      private: no  # Set to yes if you want to hide the input (e.g., for sensitive data)
+
+  tasks:
+    - name: Execute the command
+      command: "{{ command_to_run }}"
