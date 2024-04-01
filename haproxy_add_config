@@ -2,8 +2,8 @@ frontend kubernetes
 bind 10.0.2.5:6443
 option tcplog
 mode tcp
-
 default_backend kubernetes-master-nodes
+
 backend kubernetes-master-nodes
 mode tcp
 balance roundrobin
