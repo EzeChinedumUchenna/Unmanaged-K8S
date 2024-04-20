@@ -3,6 +3,8 @@
 First thing to do is to connect from your control host to the remote device(s) using SSH-based communication. Ansible uses SSH to connect to remote hosts and execute commands.Therefore generate SSH keys on the control host using the command below and go to ```~/.ssh ``` directory and copying the public key ```id_rsa.pub``` to the authorized_keys file on the remote devices. 
 ```
 ssh-keygen
+
+ssh username@<IP> "echo 'ssh-rsa Key----2QJDEJEBEP837' > ~/.ssh/authorized_keys"
 ```
 
 Inventory: Ensure that you have an inventory file (hosts) that lists the IP addresses or hostnames of the remote devices you want to manage with Ansible. This file typically resides in /etc/ansible/hosts or in a custom location specified by the -i flag.
