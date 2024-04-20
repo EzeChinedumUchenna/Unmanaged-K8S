@@ -1,6 +1,6 @@
 # Automating the deployment of a Managed Kubernetes on a VM using Ansible
 
-First thing to do is to connect from your control host to the remote device(s) using SSH-based communication. Ansible uses SSH to connect to remote hosts and execute commands.Therefore generate SSH keys on the control host using the command below and go to ```~/.ssh ``` directory and copying the public key id_rsa.pub to the authorized_keys file on the remote devices. 
+First thing to do is to connect from your control host to the remote device(s) using SSH-based communication. Ansible uses SSH to connect to remote hosts and execute commands.Therefore generate SSH keys on the control host using the command below and go to ```~/.ssh ``` directory and copying the public key ```id_rsa.pub``` to the authorized_keys file on the remote devices. 
 ```
 ssh-keygen
 ```
