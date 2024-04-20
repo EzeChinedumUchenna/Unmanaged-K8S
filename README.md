@@ -2,7 +2,8 @@
 
 #### First thing to do is to install ansible on the Control Node.
 ```
-apt install ansible
+sudo -i
+apt update && apt install ansible -y
 ```
 
 #### Then connect from your control host to the remote device(s) using SSH-based communication. Ansible uses SSH to connect to remote hosts and execute commands.Therefore generate SSH keys on the control host using the command below and go to ```~/.ssh ``` directory and copying the public key ```id_rsa.pub``` to the authorized_keys file on the remote devices. 
